@@ -1,4 +1,7 @@
 ---
 title: {{ title }}
-tags:
+tags: 
+categories: 
+comment: 'valine'
 ---
+
