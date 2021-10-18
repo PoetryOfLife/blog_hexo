@@ -1,4 +1,4 @@
 ---
 title: 相册
-date: 2021-10-14 14:12:38
+layout: "galleries"
 ---
