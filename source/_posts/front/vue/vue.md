@@ -133,7 +133,7 @@ var app = new Vue({
 <a @[event]="doSomething"> ... </a>
 ```
 
-注意：
+#### 3.2 事件修饰符
 
 - 使用this能够访问数据源的数据
 - 事件绑定可以在方式中传一个入参e，调用方不传参数，或者传入$event
@@ -143,3 +143,7 @@ var app = new Vue({
 ```HTML
 <form v-on:submit.prevent="onSubmit">...</form>
 ```
+
+#### 3.3 按键修饰符
+
+在监听键盘事件时，我们经常需要判断详细的按键，此时，可以为键盘相关事件添加按键修饰符
