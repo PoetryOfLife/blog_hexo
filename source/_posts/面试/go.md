@@ -82,4 +82,4 @@ P：Processor G和M的调度对象，用来调度G和M之间的关系，数量�
 5. 当G因为channel或者network I/O 阻塞时，不会阻塞M，此时M会寻找其他runnable的G，当阻塞的G恢复后会重新进入runnable状态进行P等待执行
 
 
-## 11. 
+## 11. 基于信号的抢占式调
