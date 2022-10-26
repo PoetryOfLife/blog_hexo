@@ -60,19 +60,19 @@ var app = new Vue({
 
 缺点：会覆盖原来的内容
 
-```HTML
+```HTML  
 <p v-text = "username"></p>
 
-```
+```  
 
 #### 1.2 {{}}
 
 数据绑定最常见的形式就是使"Mustache"语法 (双大括号) 的文本插值
 
-```HTML
+```HTML  
 <!-- 插值表达式 -->
 <span>Message: {{ msg }}</span> 
-```
+```  
 
 #### 1.3 v-html
 
@@ -140,7 +140,7 @@ var app = new Vue({
 - 事件修饰符 (modifier) 是以半角句号 . 指明的特殊后缀，用于指出一个指令应该以特殊方式绑定  
 例如，.prevent 修饰符告诉 v-on 指令对于触发的事件调用 event.preventDefault()：
 
-```HTML
+```
 <form v-on:submit.prevent="onSubmit">...</form>
 ```
 

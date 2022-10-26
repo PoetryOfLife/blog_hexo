@@ -1,6 +1,6 @@
 ---
-title: mysql 面试题
-date: 2022/9/26 15:18:37
+title: go面试题
+date: 2022/9/27 15:18:37
 tags:
   - mysql
   - 面试
