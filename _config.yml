@@ -103,7 +103,7 @@ theme: fluid
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
   type: git
-  repo: git@github.com:PoetryOfLife/sunset.github.io.git
+  repo: https://github.com/PoetryOfLife/sunset.github.io.git
   branch: master
 
 markdown:
