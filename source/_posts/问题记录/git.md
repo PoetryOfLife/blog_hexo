@@ -25,3 +25,9 @@ win凭据管理中删除原来的凭据即可
 ## 解决方案
 手动把上方get包install
 go install
+
+
+
+## 操作
+git commit --amend -m "change unit test,aibp-bml-36445"
+git push origin HEAD:refs/for/sichuanhangkong 
