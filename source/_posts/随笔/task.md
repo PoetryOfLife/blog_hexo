@@ -23,6 +23,10 @@ categories:
 12. docker/k8s
 13. TCP、IP、I/O
 
+## 面试学习路线
+1. 数据结构和算法
+2. mysql，es，redis
+
 
 ## 需要准备的物品
 行车记录仪
