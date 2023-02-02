@@ -16,28 +16,29 @@ categories:
 
 MySQL数据库中，通过使用explain关键字可以解析出SQL语句的执行计划，分析查询语句或是结构的性能瓶颈，其中主要包括以下几个参数
 
-#### 1. id 
+#### 1. id
 
 SELECT识别符，每个表的加载和读取顺序，原则是：id值越大越先被执行。id值相同的按从上到下的顺序执行。id为NULL的最后执行。
 
-#### 2. select_type 
+#### 2. select_type
 
 SELECT类型：simple，primary，union。
 
-#### 3. table 
+#### 3. table
 
 输出的行所用的表。
 
 #### 4. type 访问类型
 
 表示MySQL是如何访问数据的，是全表扫描还是通过索引，结果值从好到坏依次是：system > const > eq_ref > ref > fulltext > ref_or_null > index_merge > unique_subquery > index_subquery > range > index > ALL。
+
 - system：表里只有一行记录，这个属于const类型的特例，一行数据平时很少出现，可以忽略不计。
 - const：表示通过索引一次就找到了，const用于比较primary key 或者 unique索引。
 - rq_ref:唯一性索引扫描，对于每个索引键，表中只有一条记录与之匹配。常见于主键 或 唯一索引扫描。
 - ref:不使用唯一索引，而是使用普通索引或者唯一性索引的部分前缀，索引要和某个值相比较，可能会找到多个符合条件的行。
 - range：只检索给定范围的行，使用一个索引来选择行。
 - index：Full Index Scan，index与ALL区别为index类型只遍历索引树。
-- all：全表扫描，意味MySQL需要从头到尾去查找所需要的行。通常情况下这需要增加索引来进行优化了。   
+- all：全表扫描，意味MySQL需要从头到尾去查找所需要的行。通常情况下这需要增加索引来进行优化了。
 
 #### 5.possible_keys
 
@@ -152,7 +153,7 @@ SELECT类型：simple，primary，union。
 （1）将order by time offset X limit Y，改写成order by time offset 0 limit X+Y
 （2）服务层将改写后的SQL语句发往各个分库：即例子中的各取3页数据
 （3）假设共分为N个库，服务层将得到N*(X+Y)条数据：即例子中的6页数据
-（4）服务层对得到的N*(X+Y)条数据进行内存排序，内存排序后再取偏移量X后的Y条记录，就是全局视野所需的一页数据 
+（4）服务层对得到的N*(X+Y)条数据进行内存排序，内存排序后再取偏移量X后的Y条记录，就是全局视野所需的一页数据
 
 业务折衷法：
 
