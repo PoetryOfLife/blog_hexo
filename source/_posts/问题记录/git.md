@@ -63,6 +63,7 @@ cat id_rsa.pub
    ```shell
    cd ~/.ssh
    ssh-keygen -t ecdsa -b 521 -C "757135670@qq.com"
+   ssh-keygen -t ed25519 -C "757135670@qq.com"
    ```
 
 2. 重新把公钥放到github的setting中

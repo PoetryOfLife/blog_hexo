@@ -758,5 +758,709 @@ from stream client question: stream client rpc 0
 from stream client question: stream client rpc 1
 from stream client question: stream client rpc 2
 from stream client question: stream client rpc 3
-from stream client question: stream client rpc 4
+from stream client question: stream client rpc 4#
+```
+
+
+
+# 二、分析
+
+## 1. server端启动流程
+
+### 1.1 构建本地监听端口
+
+```go
+lis, err := net.Listen("tcp", "127.0.0.1:8001")
+if err != nil {
+    log.Fatalf("failed to listen: %v", err)
+}
+```
+
+### 1.2 创建server实例
+
+```go
+// 实例化grpc服务端
+s := grpc.NewServer()
+```
+
+```go
+// NewServer creates a gRPC server which has no service registered and has not
+// started to accept requests yet.
+// 创建一个新的server，该server还没有注册服务，并且没有接受请求
+func NewServer(opt ...ServerOption) *Server {
+    //把默认配置放到入参中
+   opts := defaultServerOptions
+   for _, o := range extraServerOptions {
+      o.apply(&opts)
+   }
+   for _, o := range opt {
+      o.apply(&opts)
+   }
+    // 构造Server实例
+   s := &Server{
+      lis:      make(map[net.Listener]bool),
+      opts:     opts,
+      conns:    make(map[string]map[transport.ServerTransport]bool),
+      services: make(map[string]*serviceInfo),
+      quit:     grpcsync.NewEvent(),
+      done:     grpcsync.NewEvent(),
+      czData:   new(channelzData),
+   }
+	//chains all unary server interceptors into one.
+   chainUnaryServerInterceptors(s)
+    //chains all stream server interceptors into one.
+   chainStreamServerInterceptors(s)
+   s.cv = sync.NewCond(&s.mu)
+   // 判断是否开启链路追踪
+   if EnableTracing {
+      _, file, line, _ := runtime.Caller(1)
+      s.events = trace.NewEventLog("grpc.Server", fmt.Sprintf("%s:%d", file, line))
+   }
+
+   if s.opts.numServerWorkers > 0 {
+      s.initServerWorkers()
+   }
+
+   s.channelzID = channelz.RegisterServer(&channelzServer{s}, "")
+   channelz.Info(logger, s.channelzID, "Server created")
+   return s
+}
+```
+
+### 1.3 注册服务
+
+```go
+// 注册Greeter服务
+pb.RegisterGreeterServer(s, &server{})
+
+func RegisterGreeterServer(s *grpc.Server, srv GreeterServer) {
+	s.RegisterService(&_Greeter_serviceDesc, srv)
+}
+
+// RegisterService registers a service and its implementation to the gRPC
+// server. It is called from the IDL generated code. This must be called before
+// invoking Serve. If ss is non-nil (for legacy code), its type is checked to
+// ensure it implements sd.HandlerType.
+func (s *Server) RegisterService(sd *ServiceDesc, ss interface{}) {
+	if ss != nil {
+		ht := reflect.TypeOf(sd.HandlerType).Elem()
+		st := reflect.TypeOf(ss)
+		if !st.Implements(ht) {
+			logger.Fatalf("grpc: Server.RegisterService found the handler of type %v that does not satisfy %v", st, ht)
+		}
+	}
+	s.register(sd, ss)
+}
+
+func (s *Server) register(sd *ServiceDesc, ss interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.printf("RegisterService(%q)", sd.ServiceName)
+	if s.serve {
+		logger.Fatalf("grpc: Server.RegisterService after Server.Serve for %q", sd.ServiceName)
+	}
+	if _, ok := s.services[sd.ServiceName]; ok {
+		logger.Fatalf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName)
+	}
+	info := &serviceInfo{
+		serviceImpl: ss,
+		methods:     make(map[string]*MethodDesc),
+		streams:     make(map[string]*StreamDesc),
+		mdata:       sd.Metadata,
+	}
+	for i := range sd.Methods {
+		d := &sd.Methods[i]
+		info.methods[d.MethodName] = d
+	}
+	for i := range sd.Streams {
+		d := &sd.Streams[i]
+		info.streams[d.StreamName] = d
+	}
+	s.services[sd.ServiceName] = info
+}
+```
+
+### 1.4 注册反射服务
+
+```go
+// 往grpc服务端注册反射服务
+reflection.Register(s)
+
+// Register registers the server reflection service on the given gRPC server.
+func Register(s GRPCServer) {
+	svr := NewServer(ServerOptions{Services: s})
+	v1alphagrpc.RegisterServerReflectionServer(s, svr)
+}
+```
+
+### 1.5 启动grpc服务
+
+```go
+// 启动grpc服务
+if err := s.Serve(lis); err != nil {
+   log.Fatalf("failed to serve: %v", err)
+}
+
+// Serve accepts incoming connections on the listener lis, creating a new
+// ServerTransport and service goroutine for each. The service goroutines
+// read gRPC requests and then call the registered handlers to reply to them.
+// Serve returns when lis.Accept fails with fatal errors.  lis will be closed when
+// this method returns.
+// Serve will return a non-nil error unless Stop or GracefulStop is called.
+func (s *Server) Serve(lis net.Listener) error {
+	s.mu.Lock()
+	s.printf("serving")
+	s.serve = true
+	if s.lis == nil {
+		// Serve called after Stop or GracefulStop.
+		s.mu.Unlock()
+		lis.Close()
+		return ErrServerStopped
+	}
+
+	s.serveWG.Add(1)
+	defer func() {
+		s.serveWG.Done()
+		if s.quit.HasFired() {
+			// Stop or GracefulStop called; block until done and return nil.
+			<-s.done.Done()
+		}
+	}()
+
+	ls := &listenSocket{Listener: lis}
+	s.lis[ls] = true
+
+	defer func() {
+		s.mu.Lock()
+		if s.lis != nil && s.lis[ls] {
+			ls.Close()
+			delete(s.lis, ls)
+		}
+		s.mu.Unlock()
+	}()
+
+	var err error
+	ls.channelzID, err = channelz.RegisterListenSocket(ls, s.channelzID, lis.Addr().String())
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	channelz.Info(logger, ls.channelzID, "ListenSocket created")
+
+	var tempDelay time.Duration // how long to sleep on accept failure
+	for {
+		rawConn, err := lis.Accept()
+		if err != nil {
+			if ne, ok := err.(interface {
+				Temporary() bool
+			}); ok && ne.Temporary() {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+				if max := 1 * time.Second; tempDelay > max {
+					tempDelay = max
+				}
+				s.mu.Lock()
+				s.printf("Accept error: %v; retrying in %v", err, tempDelay)
+				s.mu.Unlock()
+				timer := time.NewTimer(tempDelay)
+				select {
+				case <-timer.C:
+				case <-s.quit.Done():
+					timer.Stop()
+					return nil
+				}
+				continue
+			}
+			s.mu.Lock()
+			s.printf("done serving; Accept = %v", err)
+			s.mu.Unlock()
+
+			if s.quit.HasFired() {
+				return nil
+			}
+			return err
+		}
+		tempDelay = 0
+		// Start a new goroutine to deal with rawConn so we don't stall this Accept
+		// loop goroutine.
+		//
+		// Make sure we account for the goroutine so GracefulStop doesn't nil out
+		// s.conns before this conn can be added.
+		s.serveWG.Add(1)
+		go func() {
+			s.handleRawConn(lis.Addr().String(), rawConn)
+			s.serveWG.Done()
+		}()
+	}
+}
+```
+
+## 2. keepalive
+
+#### 2.1 客户端keepalive
+
+在gRPC中，会在新建Http2Client的时候，会启动一个goroutine来处理keepalive。
+
+```go
+// newHTTP2Client constructs a connected ClientTransport to addr based on HTTP2
+// and starts to receive messages on it. Non-nil error returns if construction
+// fails.
+func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts ConnectOptions, onPrefaceReceipt func(), onGoAway func(GoAwayReason), onClose func()) (_ *http2Client, err error) {
+    ...
+	if t.keepaliveEnabled {
+		t.kpDormancyCond = sync.NewCond(&t.mu)
+		go t.keepalive()
+    }
+    ...
+}
+```
+
+接下来，看下 [`keepalive` 方法](https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_client.go#L1350) 的实现：
+
+```go
+func (t *http2Client) keepalive() {
+	p := &ping{data: [8]byte{}} //ping 的内容
+	timer := time.NewTimer(t.kp.Time) // 启动一个定时器, 触发时间为配置的 Time 值
+	//for loop
+	for {
+		select {
+		// 定时器触发
+		case <-timer.C:
+			if atomic.CompareAndSwapUint32(&t.activity, 1, 0) {
+				timer.Reset(t.kp.Time)
+				continue
+			}
+			// Check if keepalive should go dormant.
+			t.mu.Lock()
+			if len(t.activeStreams) < 1 && !t.kp.PermitWithoutStream {
+				// Make awakenKeepalive writable.
+				<-t.awakenKeepalive
+				t.mu.Unlock()
+				select {
+				case <-t.awakenKeepalive:
+					// If the control gets here a ping has been sent
+					// need to reset the timer with keepalive.Timeout.
+				case <-t.ctx.Done():
+					return
+				}
+			} else {
+				t.mu.Unlock()
+				if channelz.IsOn() {
+					atomic.AddInt64(&t.czData.kpCount, 1)
+				}
+				// Send ping.
+				t.controlBuf.put(p)
+			}
+
+			// By the time control gets here a ping has been sent one way or the other.
+			timer.Reset(t.kp.Timeout)
+			select {
+			case <-timer.C:
+				if atomic.CompareAndSwapUint32(&t.activity, 1, 0) {
+					timer.Reset(t.kp.Time)
+					continue
+				}
+				t.Close()
+				return
+			case <-t.ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			}
+		// 上层通知 context 结束
+		case <-t.ctx.Done():
+			if !timer.Stop() {
+				// 返回 false，表示 timer 未被销毁
+				<-timer.C
+			}
+			return
+		}
+	}
+```
+
+从客户端的 `keepalive` 实现中梳理下执行逻辑：
+
+1. 填充 `ping` 包内容, 为 `[8]byte{}`，创建定时器, 触发时间为用户配置中的 `Time`
+2. 循环处理，select 的两大分支，一为定时器触发后执行的逻辑，另一分支为 `t.ctx.Done()`，即 `keepalive` 的上层应用调用了 `cancel` 结束 context 子树
+3. 核心逻辑在定时器触发的过程中
+
+#### 2.2 服务端keepalive
+
+gRPC 的服务端主要有两块逻辑：
+
+1. 接收并相应客户端的 ping 包
+2. 单独启动 goroutine 探测客户端是否存活
+
+gRPC 服务端提供 keepalive 配置，分为两部分 `keepalive.EnforcementPolicy` 和 `keepalive.ServerParameters`，如下：
+
+```go
+var kaep = keepalive.EnforcementPolicy{
+	MinTime:             5 * time.Second, // If a client pings more than once every 5 seconds, terminate the connection
+	PermitWithoutStream: true,            // Allow pings even when there are no active streams
+}
+
+var kasp = keepalive.ServerParameters{
+	MaxConnectionIdle:     15 * time.Second, // If a client is idle for 15 seconds, send a GOAWAY
+	MaxConnectionAge:      30 * time.Second, // If any connection is alive for more than 30 seconds, send a GOAWAY
+	MaxConnectionAgeGrace: 5 * time.Second,  // Allow 5 seconds for pending RPCs to complete before forcibly closing connections
+	Time:                  5 * time.Second,  // Ping the client if it is idle for 5 seconds to ensure the connection is still active
+	Timeout:               1 * time.Second,  // Wait 1 second for the ping ack before assuming the connection is dead
+}
+
+func main(){
+	...
+	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
+	...
+}
+```
+
+`keepalive.EnforcementPolicy`：
+
+- `MinTime`：如果客户端两次 ping 的间隔小于 `5s`，则关闭连接
+- `PermitWithoutStream`： 即使没有 active stream, 也允许 ping
+
+`keepalive.ServerParameters`：
+
+- `MaxConnectionIdle`：如果一个 client 空闲超过 `15s`, 发送一个 GOAWAY, 为了防止同一时间发送大量 GOAWAY, 会在 `15s` 时间间隔上下浮动 `15*10%`, 即 `15+1.5` 或者 `15-1.5`
+- `MaxConnectionAge`：如果任意连接存活时间超过 `30s`, 发送一个 GOAWAY
+- `MaxConnectionAgeGrace`：在强制关闭连接之间, 允许有 `5s` 的时间完成 pending 的 rpc 请求
+- `Time`： 如果一个 client 空闲超过 `5s`, 则发送一个 ping 请求
+- `Timeout`： 如果 ping 请求 `1s` 内未收到回复, 则认为该连接已断开
+
+
+
+服务端处理客户端的 `ping` 包的 response 的逻辑在 [`handlePing` 方法](https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go#L693) 中。
+`handlePing` 方法会判断是否违反两条 policy, 如果违反则将 `pingStrikes++`, 当违反次数大于 `maxPingStrikes(2)` 时, 打印一条错误日志并且发送一个 goAway 包，断开这个连接，具体实现如下：
+
+```go
+func (t *http2Server) handlePing(f *http2.PingFrame) {
+	if f.IsAck() {
+		if f.Data == goAwayPing.data && t.drainChan != nil {
+			close(t.drainChan)
+			return
+		}
+		// Maybe it's a BDP ping.
+		if t.bdpEst != nil {
+			t.bdpEst.calculate(f.Data)
+		}
+		return
+	}
+	pingAck := &ping{ack: true}
+	copy(pingAck.data[:], f.Data[:])
+	t.controlBuf.put(pingAck)
+
+	now := time.Now()
+	defer func() {
+		t.lastPingAt = now
+	}()
+	// A reset ping strikes means that we don't need to check for policy
+	// violation for this ping and the pingStrikes counter should be set
+	// to 0.
+	if atomic.CompareAndSwapUint32(&t.resetPingStrikes, 1, 0) {
+		t.pingStrikes = 0
+		return
+	}
+	t.mu.Lock()
+	ns := len(t.activeStreams)
+	t.mu.Unlock()
+	if ns < 1 && !t.kep.PermitWithoutStream {
+		// Keepalive shouldn't be active thus, this new ping should
+		// have come after at least defaultPingTimeout.
+		if t.lastPingAt.Add(defaultPingTimeout).After(now) {
+			t.pingStrikes++
+		}
+	} else {
+		// Check if keepalive policy is respected.
+		if t.lastPingAt.Add(t.kep.MinTime).After(now) {
+			t.pingStrikes++
+		}
+	}
+
+	if t.pingStrikes > maxPingStrikes {
+		// Send goaway and close the connection.
+		if logger.V(logLevel) {
+			logger.Errorf("transport: Got too many pings from the client, closing the connection.")
+		}
+		t.controlBuf.put(&goAway{code: http2.ErrCodeEnhanceYourCalm, debugData: []byte("too_many_pings"), closeConn: true})
+	}
+}
+```
+
+
+
+注意，对 `pingStrikes` 累加的逻辑：
+
+- `t.lastPingAt.Add(defaultPingTimeout).After(now)`：
+
+- `t.lastPingAt.Add(t.kep.MinTime).After(now)`：
+
+  
+
+gRPC 服务端新建一个 HTTP2 server 的时候会启动一个单独的 goroutine 处理 keepalive 逻辑，[`newHTTP2Server` 方法](https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go#L129)：
+
+```go
+func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err error) {
+	...
+	go t.keepalive()
+	...
+}
+```
+
+简单分析下 `keepalive` 的实现，核心逻辑是启动 `3` 个定时器，分别为 `maxIdle`、`maxAge` 和 `keepAlive`，然后在 `for select` 中处理相关定时器触发事件：
+
+- `maxIdle` 逻辑： 判断 client 空闲时间是否超出配置的时间, 如果超时, 则调用 `t.drain`, 该方法会发送一个 GOAWAY 包
+- `maxAge` 逻辑： 触发之后首先调用 `t.drain` 发送 GOAWAY 包, 接着重置定时器, 时间设置为 `MaxConnectionAgeGrace`, 再次触发后调用 `t.Close()` 直接关闭（有些 graceful 的意味）
+- `keepalive` 逻辑： 首先判断 activity 是否为 `1`, 如果不是则置 `pingSent` 为 `true`, 并且发送 ping 包, 接着重置定时器时间为 `Timeout`, 再次触发后如果 activity 不为 1（即未收到 ping 的回复） 并且 `pingSent` 为 `true`, 则调用 `t.Close()` 关闭连接
+
+```
+func (t *http2Server) keepalive() {
+	p := &ping{}
+	var pingSent bool
+	maxIdle := time.NewTimer(t.kp.MaxConnectionIdle)
+	maxAge := time.NewTimer(t.kp.MaxConnectionAge)
+	keepalive := time.NewTimer(t.kp.Time)
+	// NOTE: All exit paths of this function should reset their
+	// respective timers. A failure to do so will cause the
+	// following clean-up to deadlock and eventually leak.
+	defer func() {
+		// 退出前，完成定时器的回收工作
+		if !maxIdle.Stop() {
+			<-maxIdle.C
+		}
+		if !maxAge.Stop() {
+			<-maxAge.C
+		}
+		if !keepalive.Stop() {
+			<-keepalive.C
+		}
+	}()
+	for {
+		select {
+		case <-maxIdle.C:
+			t.mu.Lock()
+			idle := t.idle
+			if idle.IsZero() { // The connection is non-idle.
+				t.mu.Unlock()
+				maxIdle.Reset(t.kp.MaxConnectionIdle)
+				continue
+			}
+			val := t.kp.MaxConnectionIdle - time.Since(idle)
+			t.mu.Unlock()
+			if val <= 0 {
+				// The connection has been idle for a duration of keepalive.MaxConnectionIdle or more.
+				// Gracefully close the connection.
+				t.drain(http2.ErrCodeNo, []byte{})
+				// Resetting the timer so that the clean-up doesn't deadlock.
+				maxIdle.Reset(infinity)
+				return
+			}
+			maxIdle.Reset(val)
+		case <-maxAge.C:
+			t.drain(http2.ErrCodeNo, []byte{})
+			maxAge.Reset(t.kp.MaxConnectionAgeGrace)
+			select {
+			case <-maxAge.C:
+				// Close the connection after grace period.
+				t.Close()
+				// Resetting the timer so that the clean-up doesn't deadlock.
+				maxAge.Reset(infinity)
+			case <-t.ctx.Done():
+			}
+			return
+		case <-keepalive.C:
+			if atomic.CompareAndSwapUint32(&t.activity, 1, 0) {
+				pingSent = false
+				keepalive.Reset(t.kp.Time)
+				continue
+			}
+			if pingSent {
+				t.Close()
+				// Resetting the timer so that the clean-up doesn't deadlock.
+				keepalive.Reset(infinity)
+				return
+			}
+			pingSent = true
+			if channelz.IsOn() {
+				atomic.AddInt64(&t.czData.kpCount, 1)
+			}
+			t.controlBuf.put(p)
+			keepalive.Reset(t.kp.Timeout)
+		case <-t.ctx.Done():
+			return
+		}
+	}
+}
+```
+
+
+
+# 三、通信报文格式
+
+Protocol Buffers 是一种与语言、平台无关，可扩展的序列化结构化数据的方法，常用于通信协议，数据存储等等。相较于 JSON、XML，它更小、更快、更简单，因此也更受开发人员的青眯。
+
+# 四、拦截器
+
+在 gRPC 调用过程中，我们可以拦截 RPC 的执行，在 RPC 服务执行前或执行后运行一些自定义逻辑，这在某些场景下很有用，例如身份验证、日志等，我们可以在 RPC 服务执行前检查调用方的身份信息，若未通过验证，则拒绝执行，也可以在执行前后记录下详细的请求响应信息到日志。这种拦截机制与 Gin 中的中间件技术类似，在 gRPC 中被称为 **拦截器**，它是 gRPC 核心扩展机制之一
+
+拦截器不止可以作用在服务端上，客户端同样可以拦截，在请求发出之前和收到响应之后执行一些自定义逻辑，根据拦截的 RPC 类型，可分为 **一元拦截器** 和 **流拦截器**。
+
+## 1. 服务端拦截器
+
+在 gRPC 服务端，可以插入一个或多个拦截器，收到的请求按注册顺序通过各个拦截器，返回响应时则倒序通过。
+
+### 1.1 一元拦截器
+
+通过以下步骤实现一元拦截器：
+
+- 定义一元拦截器方法：
+
+```go
+// 函数名无特殊要求，参数需一致
+// req包含请求的所有信息，info包含一元RPC服务的所有信息
+func orderUnaryServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (interface{}, error) {
+        // 前置处理逻辑
+        log.Printf("[unary interceptor request] %s", info.FullMethod)
+        // 完成RPC服务的正常执行
+        m, err := handler(ctx, req)
+        // 后置处理逻辑
+        log.Printf("[unary interceptor resonse] %s", m)
+        // 返回响应
+        return m, err
+}
+```
+
+- 注册定义的一元拦截器
+
+```go
+func main() {
+    ...
+	// 创建gRPC服务器实例的时候注册拦截器
+    // NewServer 可传入多个拦截器
+	s := grpc.NewServer(grpc.UnaryInterceptor(orderUnaryServerInterceptor))
+    ...
+}
+```
+
+### 1.2 流拦截器
+
+流拦截器包括前置处理阶段和流操作阶段，前置处理阶段可以在流 RPC 进入具体服务实现之前进行拦截，而在流操作阶段，可以对流中的每一条消息进行拦截，通过以下步骤实现流拦截器：
+
+- 自定义一个嵌入grpc.ServerStream的包装器
+
+```go
+type wrappedStream struct {
+	grpc.ServerStream
+}
+```
+
+- 实现包装器的 RecvMsg 和 SendMsg 方法
+
+```go
+// 自定义RecvMsg和SendMsg方法实现对每一个流消息的拦截
+func (w *wrappedStream) RecvMsg(m interface{}) error {
+	log.Printf("[stream interceptor recv] type: %T", m)
+	return w.ServerStream.RecvMsg(m)
+}
+func (w *wrappedStream) SendMsg(m interface{}) error {
+	log.Printf("[stream interceptor send] %s", m)
+	return w.ServerStream.SendMsg(m)
+}
+```
+
+- 实现流拦截器
+
+```go
+func orderServerStreamInterceptor(srv interface{}, ss grpc.ServerStream,
+	info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+    // 前置处理阶段
+	log.Printf("[stream interceptor request] %s", info.FullMethod)
+	// 使用自定义包装器处理流
+	err := handler(srv, &wrappedStream{ss})
+	if err != nil {
+		log.Printf("[stream Intercept error] %v", err)
+	}
+	return err
+}
+```
+
+- 注册流拦截器
+
+```go
+func main() {
+    ...
+	s := grpc.NewServer(grpc.StreamInterceptor(orderServerStreamInterceptor))
+    ...
+}
+```
+
+## 2. 客户端拦截器
+
+在服务端可以拦截收到的 RPC 调用，客户端同样可以拦截发出去的 RPC 请求以及收到的响应，同样可以实现一元拦截器以及流拦截器。
+
+### 2.1 一元拦截器
+
+和服务端一元拦截器一样的方法，只是方法参数略微有所差别，此外在建立连接的时候注册拦截器，同样可以注册多个拦截器：
+
+```go
+// method请求方法字符串，req包含请求的所有信息参数等，reply在实际RPC调用后存储响应信息，通过invoker实际调用
+func orderUnaryClientInterceptor(ctx context.Context, method string, req, reply interface{},
+	cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	// 前置处理阶段
+	log.Println("method: " + method)
+	// 实际的RPC调用
+	err := invoker(ctx, method, req, reply, cc, opts...)
+	// 后置处理
+	log.Println(reply)
+	return err
+}
+
+func main() {
+    ...
+	conn, err := grpc.Dial(address, grpc.WithInsecure(), 	          grpc.WithUnaryInterceptor(orderUnaryClientInterceptor))
+    ...
+}
+```
+
+### 2.2 流拦截器
+
+流拦截器也是和服务端一样的步骤：
+
+```go
+type wrappedStream struct {
+	grpc.ClientStream
+}
+
+func (w *wrappedStream) SendMsg(m interface{}) error {
+	log.Printf("[stream interceptor send] %s", m)
+	return w.ClientStream.SendMsg(m)
+}
+func (w *wrappedStream) RecvMsg(m interface{}) error {
+	log.Printf("[stream interceptor recv] type: %T", m)
+	return w.ClientStream.RecvMsg(m)
+}
+
+func orderClientStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
+	cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+    // 前置处理阶段，RPC请求发出之前拦截
+	log.Printf("[client interceptor send] %s", method)
+    // 发出RPC请求
+	s, err := streamer(ctx, desc, cc, method, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &wrappedStream{s}, nil
+}
+
+func main() {
+    ...
+	conn, err := grpc.Dial(address, grpc.WithInsecure(),
+		grpc.WithStreamInterceptor(orderClientStreamInterceptor))
+    ...
+}
 ```
