@@ -13,11 +13,12 @@ categories:
 3. 在主协程和子协程间，有什么方式可以实现通信？（channel，context）
 4. sync.Pool的理解
 5. 你对gin框架的理解，为什么会这么快
-6. 就绪指针
-7. Pod 和 container的关系
-8. container之间是怎么通信的 cluster IP
-9. K8S apply创建容器的过程
-10. pod 是怎么把一个实例扩充成两个实例，修改replicas后更新过程会发生什么
+6. gRPC使用的协议是什么，二进制通信使用的是什么协议
+7. 就绪指针
+8. Pod 和 container的关系
+9. container之间是怎么通信的 cluster IP
+10. K8S apply创建容器的过程
+11. pod 是怎么把一个实例扩充成两个实例，修改replicas后更新过程会发生什么
 
 
 
