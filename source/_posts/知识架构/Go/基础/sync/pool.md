@@ -9,11 +9,7 @@ categories:
 
 
 
-# sync包
-
-
-
-## 一、**sync.Pool**
+## **sync.Pool**
 
 ###  1. 概要
 
@@ -219,3 +215,4 @@ Read at 0x000001287538 by goroutine 9:
 3. 不能对 Pool 池里的元素个数做假定，你不能够；
 4. sync.Pool 本身的 Get, Put 调用是并发安全的，`sync.New` 指向的初始化函数会并发调用，里面安不安全只有自己知道；
 5. 当用完一个从 Pool 取出的实例时候，一定要记得调用 Put，否则 Pool 无法复用这个实例，通常这个用 defer 完成；
+

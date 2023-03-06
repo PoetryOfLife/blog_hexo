@@ -24,19 +24,30 @@ categories:
 13. TCP、IP、I/O
 
 ## 面试学习路线
-1. 数据结构和算法
-2. mysql，es，redis
+1. go进阶视频
 
+2. MySQL课程学习
 
-## 需要准备的物品
-行车记录仪
-灭火器
-定制皮座椅，定制方向盘
-检测胎压
+3. 分库分表实操
+
+4. Redis课程学习
+
+5. 云原生课程学习
+
+6. gRPC 课程
+
+   https://www.bilibili.com/video/BV1Xv411t7h5?p=1
+
+7. 手搓RPC
 
 
 ## 搭建服务器
 smb
 内网穿透
 hexo部署到自己的服务器
+
 域名备案
+
+
+
+## 怎么引导孩子的学习兴趣

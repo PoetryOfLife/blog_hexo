@@ -27,6 +27,6 @@
 1. 提交创建命令
 2. api-server 会对客户端进行身份认证，在~./kube文件夹下，设置好了相关的用户认证信息，确定请求合法之后，会把相关信息存到etcd中。
 3. api-server开始反馈etcd中的创建的对象的变化，其他组件使用watch机制跟踪apiserver上的变动。
-4. controller-manager组件会监听api-server的信息，如果deployt controller发现有新的deployment要创建，那么它就回去新建一个replicaSet，之后又被另一个replicatset controller 监听到了，紧接着它就会去分析replicaset的语义，了解到是要依照replicaset的template 去创建Pod，他看到pod并不存在就会去新建一个pod，当pod刚被创建时，他的node name属性值为空，代表着此pod还未调度。
+4. controller-manager组件会监听api-server的信息，如果deploy controller发现有新的deployment要创建，那么它就回去新建一个replicaSet，之后又被另一个replicatset controller 监听到了，紧接着它就会去分析replicaset的语义，了解到是要依照replicaset的template 去创建Pod，他看到pod并不存在就会去新建一个pod，当pod刚被创建时，他的node name属性值为空，代表着此pod还未调度。
 5. 调度器schedule开始介入工作，通过watch机制跟踪apiserver上的变动，发现有未调度的pod，根据内部算法和资源情况，选出最优节点，然后绑定到这个节点。
-6. kubelet判断本地是否存在这个pod，如果不存在就创建，不需要挂载外部存储，直接docker run启动，但是不会直接挂载docker网络，而是通过CNI调用网络插件配置容器网络，如果需要挂载存储，则还要调用CSI来挂载存储，创建完之后会把信息反馈给api-server，返回将pod的信息写入etcd/
+6. kubelet判断本地是否存在这个pod，如果不存在就创建，不需要挂载外部存储，直接docker run启动，但是不会直接挂载docker网络，而是通过CNI调用网络插件配置容器网络，如果需要挂载存储，则还要调用CSI来挂载存储，创建完之后会把信息反馈给api-server，返回将pod的信息写入etcd。

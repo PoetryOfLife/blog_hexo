@@ -14,11 +14,12 @@ categories:
 4. sync.Pool的理解
 5. 你对gin框架的理解，为什么会这么快
 6. gRPC使用的协议是什么，二进制通信使用的是什么协议
-7. 就绪指针
-8. Pod 和 container的关系
-9. container之间是怎么通信的 cluster IP
-10. K8S apply创建容器的过程
-11. pod 是怎么把一个实例扩充成两个实例，修改replicas后更新过程会发生什么
+7. K8S master节点上主要的组件有哪些
+8. 就绪指针
+9. Pod 和 container的关系
+10. container之间是怎么通信的 cluster IP
+11. K8S apply创建容器的过程
+12. pod 是怎么把一个实例扩充成两个实例，修改replicas后更新过程会发生什么
 
 
 

@@ -1,0 +1,12 @@
+1. kratos在启动的时候，不同的server由内置的errgroup进行管理，如果app的ctx被cancel，errgroup的ctx也会被销毁
+2. kratos在new的时候，需要传入对应的grpc和http服务，在run时，就是遍历app的servers来实现的，不管是grpc还是http，都是属于kratos的transport模块下，他们都是实现了server的start和stop方法
+3. 在server初始化时，他们都一开始就添加了拦截器，并且在拦截器中会有一个merge的方法，kratos-grpc-server的context和每个grpc请求的context合并为一个请求，
+4. 定义中间件类型，
+
+把请求的ctx和kratos的ctx合并起来(前面文章有说)
+
+把app信息和请求的metadata等信息放到transport中,然后把transport放到前面合并的ctx中继续往下传递(前面文章有说)
+
+最后初始化在kratos-grpc-server的多个Middleware中选出匹配的和最终要执行的handler串联起来成一个handler.
+
+最后才是执行这个被串联出来的handler
