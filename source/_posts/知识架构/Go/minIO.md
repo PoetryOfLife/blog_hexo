@@ -52,3 +52,14 @@ RS最多能容忍m个数据块被删除。 数据恢复的过程如下：
 
 （4）对D重新编码，可得到丢失的编码
 
+# 四、部署时遇到的问题
+
+## 1. WARNING: Published ports are discarded f using host network mode
+
+![image-20230309101022659](C:\Users\75713\AppData\Roaming\Typora\typora-user-images\image-20230309101022659.png)
+
+使用了--net=host，这个容器使用的实际上是宿主机的ip和端口。
+
+## 2.本机可以访问9090端口，其他机器不行
+
+1.关闭防火墙 2.执行`iptables -F`清空防火墙规则
