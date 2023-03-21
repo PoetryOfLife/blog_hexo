@@ -56,7 +56,7 @@ RS最多能容忍m个数据块被删除。 数据恢复的过程如下：
 
 ## 1. WARNING: Published ports are discarded f using host network mode
 
-![image-20230309101022659](C:\Users\75713\AppData\Roaming\Typora\typora-user-images\image-20230309101022659.png)
+![image-20230309101022659](..\..\image\image-20230309101022659.png)
 
 使用了--net=host，这个容器使用的实际上是宿主机的ip和端口。
 
