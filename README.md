@@ -9,4 +9,7 @@ npm -v
 3. 在下载安装后需要执行
 ```
 npm install
+npm install -g hexo-cli
 ```
+
+
