@@ -41,5 +41,88 @@ IK分词器依赖于字典做分词，ik分词支持拓展词库和停用词库�
 
 在IKAnalyzer.cfg.xml中设置ext.dic和stopword.dic;
 
+## 四、mapping约束
+
+### type
+
+- 字符串：text、keyword
+- 数值：long、integer、short、byte、double、float
+- 布尔：boolean
+- 日期：date
+- 对象：object
+
+### index
+
+是否创建索引，默认true
+
+### analyzer
+
+使用哪种分词器
+
+### properties
+
+该字段的子字段
 
 
+
+## 五、索引库
+
+### 创建
+
+PUT /索引库名
+
+### 查看
+
+GET /索引库名
+
+### 删除
+
+DELETE /索引库名
+
+### 修改
+
+禁止修改原有字段，但是可以添加新字段名
+
+PUT /索引库名/_mapping
+
+## 六、文档操作
+
+### 新增文档
+
+POST /索引库名/_doc/文档id
+
+### 查询文档
+
+GET /索引库名/_doc/文档id
+
+### 删除文档
+
+DELETE /索引库名/_doc/文档id
+
+### 修改文档
+
+方式一：全量修改，会删除文档，添加新文档
+
+PUT /索引库名/_doc/文档id
+
+方式二：增量修改，修改指定字段值
+
+POST /索引库名/_update/文档id
+
+## 七、DSL
+
+### 查询分类
+
+查询所有：match_all
+
+全文检索：利用分词器对用户的输入进行分词，然后去倒排索引查询。match_query、multi_match_query
+
+精确查询：根据精确词条查询数据，ids，range，term
+
+地理查询：根据经纬度查询。
+
+复合查询：可以将上述各种查询条件组合起来查询。
+
+### 相关性算分
+
+TF（词条频率） = 词条出现次数/词条总数
