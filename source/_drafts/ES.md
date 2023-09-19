@@ -126,3 +126,81 @@ POST /索引库名/_update/文档id
 ### 相关性算分
 
 TF（词条频率） = 词条出现次数/词条总数
+
+TF-IDF 算法
+
+![image-20230919105148489](C:\Users\75713\AppData\Roaming\Typora\typora-user-images\image-20230919105148489.png)
+
+DSL 查询语法
+
+### function score query
+
+使用function score query，可以修改文档的相关性算分，根据新得到的算分排序。
+
+![image-20230919164325439](C:\Users\75713\AppData\Roaming\Typora\typora-user-images\image-20230919164325439.png)
+
+三要素：
+
+- 过滤条件：哪些文档要加分
+- 算分函数（weight、field_value_factor、random_score、script_score）：如何计算function_score。
+- 加权模式（multiply、replace）：query_score和function_score的加权方式。
+
+### 复合查询 boolean query
+
+布尔查询是一个或多个查询子句的组合。子查询组合方式：
+
+- must：必须匹配每个子查询
+- should：选择性匹配子查询
+- must_not：必须不匹配，不参与算分
+- filter：必须匹配
+
+### 搜索结果处理
+
+#### 排序
+
+默认是根据相关度算分来排序，也可以指定字段来排序。
+
+使用sort和field来指定顺序
+
+#### 分页
+
+默认只返回前十条，通过使用from和size来分页，默认最大10000条
+
+ES是分布式的，所以会面临深度分页的问题。
+
+1. 首先从每个数据分片上都排序并查询前1000条。
+2. 然后将所有节点的结果聚合，在内存中重新排序选出前1000条文档。
+3. 最后从这1000条中，选取从990开始的10条文档。
+
+##### 针对深度分页
+
+search after：分页时需要排序，原来是从上一次的排序值开始，查询下一页数据。
+
+#### 高亮
+
+把搜索结果中把搜索关键字突出显示，通过highlight来实现，其中包裹pre_tags和post_tags属性指定标签
+
+## 聚合
+
+聚合可以实现对文档数据的统计、分析、运算。常见的有三类：
+
+- 桶：用来对文档做分组
+  - TermAggregation
+  - Date
+- 度量聚合：用以计算一些值。
+  - avg
+  - max
+  - min
+- 管道聚合：其他聚合的结果进行为基础做聚合。
+
+aggs代表聚合，与query同级，此时query的作用是限定聚合的文档范围。
+
+聚合三要素：聚合名称，聚合类型，聚合字段。
+
+## 自动补全
+
+
+
+## 分词器
+
+分词器分为三部分
